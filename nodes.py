@@ -45,7 +45,7 @@ def interrupt_processing(value=True):
     comfy.model_management.interrupt_current_processing(value)
 
 MAX_RESOLUTION=16384
-
+# 텍스트 인코더 / 체크포인트
 class CLIPTextEncode(ComfyNodeABC):
     @classmethod
     def INPUT_TYPES(s) -> InputTypeDict:
@@ -266,7 +266,7 @@ class ConditioningSetTimestepRange:
         c = node_helpers.conditioning_set_values(conditioning, {"start_percent": start,
                                                                 "end_percent": end})
         return (c, )
-
+# 체크포인트3 : 실제 이미지 생성
 class VAEDecode:
     @classmethod
     def INPUT_TYPES(s):
@@ -912,7 +912,7 @@ class UNETLoader:
         unet_path = folder_paths.get_full_path_or_raise("diffusion_models", unet_name)
         model = comfy.sd.load_diffusion_model(unet_path, model_options=model_options)
         return (model,)
-
+# 클립 로더 / 체크포인트2
 class CLIPLoader:
     @classmethod
     def INPUT_TYPES(s):

@@ -44,8 +44,40 @@ def before_node_execution():
 def interrupt_processing(value=True):
     comfy.model_management.interrupt_current_processing(value)
 
+import requests
+from langdetect import detect
+# 번역기 api
+class DeepLTranslator:
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+        self.url = "https://api-free.deepl.com/v2/translate"
+
+    def translate(self, text: str, source_lang="KO", target_lang="EN") -> str:
+        if not text.strip():
+            return text
+        data = {
+            "auth_key": self.api_key,
+            "text": text,
+            "source_lang": source_lang,
+            "target_lang": target_lang
+        }
+        response = requests.post(self.url, data=data)
+        if response.status_code == 200:
+            return response.json()['translations'][0]['text']
+        else:
+            print("Translation failed:", response.text)
+            return text  # fallback to original
+
+    def translate_if_needed(self, text: str) -> str:
+        try:
+            if detect(text) == "ko":
+                return self.translate(text)
+        except Exception as e:
+            print("Language detection failed:", e)
+        return text
 MAX_RESOLUTION=16384
 
+# 텍스트 인코더 / 체크포인트
 class CLIPTextEncode(ComfyNodeABC):
     @classmethod
     def INPUT_TYPES(s) -> InputTypeDict:
@@ -62,10 +94,15 @@ class CLIPTextEncode(ComfyNodeABC):
     CATEGORY = "conditioning"
     DESCRIPTION = "Encodes a text prompt using a CLIP model into an embedding that can be used to guide the diffusion model towards generating specific images."
 
+    def __init__(self):
+        self.translator = DeepLTranslator("e7a84eba-0af1-4b37-aa36-f58c7c556ae9:fx")  # 여기에 본인 API 키 입력
+
     def encode(self, clip, text):
         if clip is None:
-            raise RuntimeError("ERROR: clip input is invalid: None\n\nIf the clip is from a checkpoint loader node your checkpoint does not contain a valid clip or text encoder model.")
-        tokens = clip.tokenize(text)
+            raise RuntimeError("ERROR: clip input is invalid: None")
+        
+        textEN = self.translator.translate_if_needed(text)
+        tokens = clip.tokenize(textEN)
         return (clip.encode_from_tokens_scheduled(tokens), )
 
 

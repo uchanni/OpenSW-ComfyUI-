@@ -1,4 +1,6 @@
 from __future__ import annotations
+from transformers import pipeline # 키워드 추출 패키지
+
 import torch
 
 import os
@@ -81,6 +83,7 @@ MAX_RESOLUTION=16384
 class CLIPTextEncode(ComfyNodeABC):
     @classmethod
     def INPUT_TYPES(s) -> InputTypeDict:
+
         return {
             "required": {
                 "text": (IO.STRING, {"multiline": True, "dynamicPrompts": True, "tooltip": "The text to be encoded."}),
@@ -95,14 +98,17 @@ class CLIPTextEncode(ComfyNodeABC):
     DESCRIPTION = "Encodes a text prompt using a CLIP model into an embedding that can be used to guide the diffusion model towards generating specific images."
 
     def __init__(self):
-        self.translator = DeepLTranslator("e7a84eba-0af1-4b37-aa36-f58c7c556ae9:fx")  # 여기에 본인 API 키 입력
+        self.translator = DeepLTranslator("e7a84eba-0af1-4b37-aa36-f58c7c556ae9:fx")  # deepl 번역기 api key
 
     def encode(self, clip, text):
+
         if clip is None:
             raise RuntimeError("ERROR: clip input is invalid: None")
         
         textEN = self.translator.translate_if_needed(text)
-        tokens = clip.tokenize(textEN)
+        nlp = pipeline("text2text-generation", model="ml6team/keyphrase-extraction-distilbert-inspec") # 텍스트 키워드 추출기
+        textENKeyword = nlp(textEN)[0]['generated_text']
+        tokens = clip.tokenize(textENKeyword)
         return (clip.encode_from_tokens_scheduled(tokens), )
 
 

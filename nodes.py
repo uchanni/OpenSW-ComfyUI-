@@ -108,6 +108,7 @@ class CLIPTextEncode(ComfyNodeABC):
         textEN = self.translator.translate_if_needed(text)
         nlp = pipeline("text2text-generation", model="ml6team/keyphrase-extraction-distilbert-inspec") # 텍스트 키워드 추출기
         textENKeyword = nlp(textEN)[0]['generated_text']
+        print(textENKeyword)
         tokens = clip.tokenize(textENKeyword)
         return (clip.encode_from_tokens_scheduled(tokens), )
 

@@ -110,10 +110,9 @@ class CLIPTextEncode(ComfyNodeABC):
         textEN = self.translator.translate_if_needed(text)
 
         try:
-            nlp = pipeline("token-classification", model="ml6team/keyphrase-extraction-distilbert-inspec", aggregation_strategy="simple")
-            outputs = nlp(textEN)
-            keywords = list(set([output['word'] for output in outputs]))
-            textENKeyword = ", ".join(keywords) if keywords else textEN
+            # 텍스트 키워드 추출기 (text2text 방식)
+            nlp = pipeline("text2text-generation", model="ml6team/keyphrase-generation-t5-small-inspec")
+            textENKeyword = nlp(textEN, max_length=64)[0]['generated_text']
         except Exception as e:
             print(f"[Keyword Extraction Error] {e}")
             textENKeyword = textEN  # fallback

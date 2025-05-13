@@ -83,7 +83,6 @@ MAX_RESOLUTION=16384
 class CLIPTextEncode(ComfyNodeABC):
     @classmethod
     def INPUT_TYPES(s) -> InputTypeDict:
-
         return {
             "required": {
                 "text": (IO.STRING, {"multiline": True, "dynamicPrompts": True, "tooltip": "The text to be encoded."}),
@@ -101,16 +100,37 @@ class CLIPTextEncode(ComfyNodeABC):
         self.translator = DeepLTranslator("e7a84eba-0af1-4b37-aa36-f58c7c556ae9:fx")  # deepl 번역기 api key
 
     def encode(self, clip, text):
+        import csv
+        import os
+        from transformers import pipeline
 
         if clip is None:
             raise RuntimeError("ERROR: clip input is invalid: None")
         
         textEN = self.translator.translate_if_needed(text)
-        nlp = pipeline("text2text-generation", model="ml6team/keyphrase-extraction-distilbert-inspec") # 텍스트 키워드 추출기
-        textENKeyword = nlp(textEN)[0]['generated_text']
-        print(textENKeyword)
+
+        try:
+            nlp = pipeline("token-classification", model="ml6team/keyphrase-extraction-distilbert-inspec", aggregation_strategy="simple")
+            outputs = nlp(textEN)
+            keywords = list(set([output['word'] for output in outputs]))
+            textENKeyword = ", ".join(keywords) if keywords else textEN
+        except Exception as e:
+            print(f"[Keyword Extraction Error] {e}")
+            textENKeyword = textEN  # fallback
+
+        # 키워드 추출 결과를 CSV로 기록
+        log_path = "log_keyword_results.csv"
+        file_exists = os.path.exists(log_path)
+
+        with open(log_path, mode="a", newline="", encoding="utf-8") as file:
+            writer = csv.writer(file)
+            if not file_exists:
+                writer.writerow(["input_ko", "translated_en", "extracted_keywords"])
+            writer.writerow([text, textEN, textENKeyword])
+
         tokens = clip.tokenize(textENKeyword)
         return (clip.encode_from_tokens_scheduled(tokens), )
+
 
 
 class ConditioningCombine:

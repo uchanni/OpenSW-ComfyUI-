@@ -1,10 +1,10 @@
 from __future__ import annotations
-from transformers import pipeline # 키워드 추출 패키지
-
+#from transformers import pipeline # 키워드 추출 패키지
+from keybert import KeyBERT
 import torch
 
 import os
-import sys
+import sys  
 import json
 import hashlib
 import traceback
@@ -83,7 +83,6 @@ MAX_RESOLUTION=16384
 class CLIPTextEncode(ComfyNodeABC):
     @classmethod
     def INPUT_TYPES(s) -> InputTypeDict:
-
         return {
             "required": {
                 "text": (IO.STRING, {"multiline": True, "dynamicPrompts": True, "tooltip": "The text to be encoded."}),
@@ -101,6 +100,26 @@ class CLIPTextEncode(ComfyNodeABC):
         self.translator = DeepLTranslator("e7a84eba-0af1-4b37-aa36-f58c7c556ae9:fx")  # deepl 번역기 api key
 
     def encode(self, clip, text):
+        if clip is None:
+            raise RuntimeError("ERROR: clip input is invalid: None")
+
+        textEN = self.translator.translate_if_needed(text)
+
+        kw_model = KeyBERT(model='paraphrase-MiniLM-L6-v2')
+
+        #kw_model = KeyBERT()
+        keywords = kw_model.extract_keywords(textEN, keyphrase_ngram_range=(1, 4), stop_words='english')
+        print("번역: ",textEN)
+        # Step 3: 프롬프트 출력
+        keyword_prompt = ", ".join([kw[0] for kw in keywords])
+        print("프롬프트 키워드: ", keyword_prompt)
+        tokens = clip.tokenize(keyword_prompt)
+
+        return (clip.encode_from_tokens_scheduled(tokens), )
+
+"""
+    아래는 원본 코드
+    def encode(self, clip, text):
 
         if clip is None:
             raise RuntimeError("ERROR: clip input is invalid: None")
@@ -108,9 +127,12 @@ class CLIPTextEncode(ComfyNodeABC):
         textEN = self.translator.translate_if_needed(text)
         nlp = pipeline("text2text-generation", model="ml6team/keyphrase-extraction-distilbert-inspec") # 텍스트 키워드 추출기
         textENKeyword = nlp(textEN)[0]['generated_text']
+
+        print(textENKeyword) # 키워드 추출기 체크
+
         tokens = clip.tokenize(textENKeyword)
         return (clip.encode_from_tokens_scheduled(tokens), )
-
+"""
 
 class ConditioningCombine:
     @classmethod

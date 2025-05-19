@@ -78,7 +78,8 @@ class DeepLTranslator:
         except Exception as e:
             print("Language detection failed:", e)
         return text
-MAX_RESOLUTION=16384
+
+MAX_RESOLUTION = 16384
 
 # 텍스트 인코더 / 체크포인트
 class CLIPTextEncode(ComfyNodeABC):
@@ -117,23 +118,30 @@ class CLIPTextEncode(ComfyNodeABC):
             raise RuntimeError("ERROR: clip input is invalid: None")
 
         textEN = self.translator.translate_if_needed(text)
-        print("번역된 문장:", textEN)  # 자연어 번역 결과 프롬프트 출력 추가
+        print("번역된 문장:", textEN)
 
+        # 키워드 추출 (MMR 적용)
         keywords_with_scores = self.kw_model.extract_keywords(
             textEN,
             keyphrase_ngram_range=(1, 3),
             stop_words='english',
+            use_mmr=True,          # ✅ MMR로 의미 중복 방지
+            diversity=0.7,         # ✅ 다양성 보장
             top_n=10
         )
 
-        # 중복 제거 적용
-        keyword_texts = self.remove_substring_duplicates(keywords_with_scores)
+        # 2~3단어짜리 키워드만 필터링
+        keywords_filtered = [(kw, score) for kw, score in keywords_with_scores if 2 <= len(kw.split()) <= 3]
+
+        # 중복 제거
+        keyword_texts = self.remove_substring_duplicates(keywords_filtered)
         print("프롬프트 키워드 (문자열만):", keyword_texts)
 
         joined_keywords = ", ".join(keyword_texts)
         tokens = clip.tokenize(joined_keywords)
 
         return (clip.encode_from_tokens_scheduled(tokens), )
+
 
 '''
 class CLIPTextEncode(ComfyNodeABC):

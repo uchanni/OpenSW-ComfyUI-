@@ -1,5 +1,5 @@
 from __future__ import annotations
-#from transformers import pipeline # 키워드 추출 패키지
+from transformers import pipeline # 키워드 추출 패키지
 from keybert import KeyBERT
 from sentence_transformers import SentenceTransformer
 import torch
@@ -100,6 +100,57 @@ class CLIPTextEncode(ComfyNodeABC):
     DESCRIPTION = "Encodes a text prompt using a CLIP model into an embedding that can be used to guide the diffusion model towards generating specific images."
 
     def __init__(self):
+        self.translator = DeepLTranslator("e7a84eba-0af1-4b37-aa36-f58c7c556ae9:fx")  # 번역기 API는 그대로 유지
+
+        # ✅ T5 기반 키워드 생성 파이프라인
+        self.keyword_generator = pipeline(
+            "text2text-generation",
+            model="ml6team/keyphrase-generation-t5-small-inspec",
+            tokenizer="ml6team/keyphrase-generation-t5-small-inspec"
+        )
+
+    def encode(self, clip, text):
+        if clip is None:
+            raise RuntimeError("ERROR: clip input is invalid: None")
+
+        # 번역
+        textEN = self.translator.translate_if_needed(text)
+        print("번역된 문장:", textEN)
+
+        # ✅ T5로 키워드 생성
+        result = self.keyword_generator(textEN, max_length=64, clean_up_tokenization_spaces=True)
+        keyword_output = result[0]['generated_text']
+        print("T5 키워드 출력:", keyword_output)
+
+        # 쉼표로 나눈 후 정제
+        keywords = [kw.strip() for kw in keyword_output.split(",") if kw.strip()]
+        joined_keywords = ", ".join(keywords)
+        print("최종 프롬프트 키워드:", joined_keywords)
+
+        tokens = clip.tokenize(joined_keywords)
+        return (clip.encode_from_tokens_scheduled(tokens), )
+
+
+'''
+# 텍스트 인코더 / 체크포인트
+class CLIPTextEncode(ComfyNodeABC):
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "text": (IO.STRING, {"multiline": True, "dynamicPrompts": True, "tooltip": "The text to be encoded."}),
+                "clip": (IO.CLIP, {"tooltip": "The CLIP model used for encoding the text."})
+            }
+        }
+
+    RETURN_TYPES = (IO.CONDITIONING,)
+    OUTPUT_TOOLTIPS = ("A conditioning containing the embedded text used to guide the diffusion model.",)
+    FUNCTION = "encode"
+
+    CATEGORY = "conditioning"
+    DESCRIPTION = "Encodes a text prompt using a CLIP model into an embedding that can be used to guide the diffusion model towards generating specific images."
+
+    def __init__(self):
         self.translator = DeepLTranslator("e7a84eba-0af1-4b37-aa36-f58c7c556ae9:fx")  # deepl 번역기 api key
         self.st_model = SentenceTransformer('all-mpnet-base-v2')
         self.kw_model = KeyBERT(self.st_model)
@@ -125,8 +176,8 @@ class CLIPTextEncode(ComfyNodeABC):
             textEN,
             keyphrase_ngram_range=(1, 3),
             stop_words='english',
-            use_mmr=True,          # ✅ MMR로 의미 중복 방지
-            diversity=0.7,         # ✅ 다양성 보장
+            use_mmr=True,          # MMR로 의미 중복 방지
+            diversity=0.7,         #  다양성 보장
             top_n=10
         )
 
@@ -141,7 +192,7 @@ class CLIPTextEncode(ComfyNodeABC):
         tokens = clip.tokenize(joined_keywords)
 
         return (clip.encode_from_tokens_scheduled(tokens), )
-
+'''
 
 '''
 class CLIPTextEncode(ComfyNodeABC):

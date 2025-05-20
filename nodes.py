@@ -49,6 +49,7 @@ def interrupt_processing(value=True):
 
 import requests
 from langdetect import detect
+
 # 번역기 api
 class DeepLTranslator:
     def __init__(self, api_key: str):
@@ -102,7 +103,7 @@ class CLIPTextEncode(ComfyNodeABC):
     def __init__(self):
         self.translator = DeepLTranslator("e7a84eba-0af1-4b37-aa36-f58c7c556ae9:fx")  # 번역기 API는 그대로 유지
 
-        # ✅ T5 기반 키워드 생성 파이프라인
+        # T5 키워드 생성기
         self.keyword_generator = pipeline(
             "text2text-generation",
             model="ml6team/keyphrase-generation-t5-small-inspec",
@@ -117,12 +118,21 @@ class CLIPTextEncode(ComfyNodeABC):
         textEN = self.translator.translate_if_needed(text)
         print("번역된 문장:", textEN)
 
-        # ✅ T5로 키워드 생성
-        result = self.keyword_generator(textEN, max_length=64, clean_up_tokenization_spaces=True)
+        # ✅ 키워드 생성 (랜덤성 향상)
+        result = self.keyword_generator(
+            textEN,
+            max_length=64,
+            num_return_sequences=1,
+            do_sample=True,
+            top_k=50,
+            top_p=0.95,
+            temperature=1.3
+        )
+
         keyword_output = result[0]['generated_text']
         print("T5 키워드 출력:", keyword_output)
 
-        # 쉼표로 나눈 후 정제
+        # 쉼표 기반 분리 및 정제
         keywords = [kw.strip() for kw in keyword_output.split(",") if kw.strip()]
         joined_keywords = ", ".join(keywords)
         print("최종 프롬프트 키워드:", joined_keywords)

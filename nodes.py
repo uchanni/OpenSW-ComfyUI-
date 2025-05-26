@@ -118,7 +118,7 @@ class CLIPTextEncode(ComfyNodeABC):
         textEN = self.translator.translate_if_needed(text)
         print("번역된 문장:", textEN)
 
-        # ✅ 키워드 생성 (랜덤성 향상)
+        # ✅ 키워드 생성 (랜덤성 향상) 1
         result = self.keyword_generator(
             textEN,
             max_length=64,

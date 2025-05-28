@@ -17,11 +17,18 @@ export default function App() {
     if(neg.trim()) body.neg=neg;
     if(show) body.seed=Number(seed);
     try{
-      const r=await axios.post("http://127.0.0.1:5000/generate",body);
-      setImg("data:image/png;base64,"+r.data.images[0].image);
-    }catch(e){alert(e);}
-    setLoading(false);
-  };
+      const r = await axios.post("http://127.0.0.1:5000/generate", body);
+      const base64 = r.data?.images?.[0]?.image          // 패턴 A
+                  || r.data?.output?.images?.[0]?.image; // 패턴 B
+
+      if (!base64) {
+        alert("ComfyUI 응답에 이미지가 없습니다");
+        return;
+      }
+      setImg("data:image/png;base64," + base64);
+          }catch(e){alert(e);}
+          setLoading(false);
+        };
 
   return(
   <div className="wrap">

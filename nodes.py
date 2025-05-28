@@ -1,7 +1,6 @@
 from __future__ import annotations
-from transformers import pipeline # 키워드 추출 패키지
+#from transformers import pipeline # 키워드 추출 패키지
 from keybert import KeyBERT
-from sentence_transformers import SentenceTransformer
 import torch
 
 import os
@@ -79,132 +78,9 @@ class DeepLTranslator:
         except Exception as e:
             print("Language detection failed:", e)
         return text
-
-MAX_RESOLUTION = 16384
+MAX_RESOLUTION=16384
 
 # 텍스트 인코더 / 체크포인트
-class CLIPTextEncode(ComfyNodeABC):
-    @classmethod
-    def INPUT_TYPES(s):
-        return {
-            "required": {
-                "text": (IO.STRING, {"multiline": True, "dynamicPrompts": True, "tooltip": "The text to be encoded."}),
-                "clip": (IO.CLIP, {"tooltip": "The CLIP model used for encoding the text."})
-            }
-        }
-
-    RETURN_TYPES = (IO.CONDITIONING,)
-    OUTPUT_TOOLTIPS = ("A conditioning containing the embedded text used to guide the diffusion model.",)
-    FUNCTION = "encode"
-
-    CATEGORY = "conditioning"
-    DESCRIPTION = "Encodes a text prompt using a CLIP model into an embedding that can be used to guide the diffusion model towards generating specific images."
-
-    def __init__(self):
-        self.translator = DeepLTranslator("e7a84eba-0af1-4b37-aa36-f58c7c556ae9:fx")  # 번역기 API는 그대로 유지
-
-        # T5 키워드 생성기
-        self.keyword_generator = pipeline(
-            "text2text-generation",
-            model="ml6team/keyphrase-generation-t5-small-inspec",
-            tokenizer="ml6team/keyphrase-generation-t5-small-inspec"
-        )
-
-    def encode(self, clip, text):
-        if clip is None:
-            raise RuntimeError("ERROR: clip input is invalid: None")
-
-        # 번역
-        textEN = self.translator.translate_if_needed(text)
-        print("번역된 문장:", textEN)
-
-        # ✅ 키워드 생성 (랜덤성 향상) 1
-        result = self.keyword_generator(
-            textEN,
-            max_length=64,
-            num_return_sequences=1,
-            do_sample=True,
-            top_k=50,
-            top_p=0.95,
-            temperature=1.3
-        )
-
-        keyword_output = result[0]['generated_text']
-        print("T5 키워드 출력:", keyword_output)
-
-        # 쉼표 기반 분리 및 정제
-        keywords = [kw.strip() for kw in keyword_output.split(",") if kw.strip()]
-        joined_keywords = ", ".join(keywords)
-        print("최종 프롬프트 키워드:", joined_keywords)
-
-        tokens = clip.tokenize(joined_keywords)
-        return (clip.encode_from_tokens_scheduled(tokens), )
-
-
-'''
-# 텍스트 인코더 / 체크포인트
-class CLIPTextEncode(ComfyNodeABC):
-    @classmethod
-    def INPUT_TYPES(s):
-        return {
-            "required": {
-                "text": (IO.STRING, {"multiline": True, "dynamicPrompts": True, "tooltip": "The text to be encoded."}),
-                "clip": (IO.CLIP, {"tooltip": "The CLIP model used for encoding the text."})
-            }
-        }
-
-    RETURN_TYPES = (IO.CONDITIONING,)
-    OUTPUT_TOOLTIPS = ("A conditioning containing the embedded text used to guide the diffusion model.",)
-    FUNCTION = "encode"
-
-    CATEGORY = "conditioning"
-    DESCRIPTION = "Encodes a text prompt using a CLIP model into an embedding that can be used to guide the diffusion model towards generating specific images."
-
-    def __init__(self):
-        self.translator = DeepLTranslator("e7a84eba-0af1-4b37-aa36-f58c7c556ae9:fx")  # deepl 번역기 api key
-        self.st_model = SentenceTransformer('all-mpnet-base-v2')
-        self.kw_model = KeyBERT(self.st_model)
-
-    def remove_substring_duplicates(self, keywords):
-        seen = set()
-        result = []
-        for kw, _ in keywords:
-            if all(kw not in other for other in seen):
-                result.append(kw)
-                seen.add(kw)
-        return result
-
-    def encode(self, clip, text):
-        if clip is None:
-            raise RuntimeError("ERROR: clip input is invalid: None")
-
-        textEN = self.translator.translate_if_needed(text)
-        print("번역된 문장:", textEN)
-
-        # 키워드 추출 (MMR 적용)
-        keywords_with_scores = self.kw_model.extract_keywords(
-            textEN,
-            keyphrase_ngram_range=(1, 3),
-            stop_words='english',
-            use_mmr=True,          # MMR로 의미 중복 방지
-            diversity=0.7,         #  다양성 보장
-            top_n=10
-        )
-
-        # 2~3단어짜리 키워드만 필터링
-        keywords_filtered = [(kw, score) for kw, score in keywords_with_scores if 2 <= len(kw.split()) <= 3]
-
-        # 중복 제거
-        keyword_texts = self.remove_substring_duplicates(keywords_filtered)
-        print("프롬프트 키워드 (문자열만):", keyword_texts)
-
-        joined_keywords = ", ".join(keyword_texts)
-        tokens = clip.tokenize(joined_keywords)
-
-        return (clip.encode_from_tokens_scheduled(tokens), )
-'''
-
-'''
 class CLIPTextEncode(ComfyNodeABC):
     @classmethod
     def INPUT_TYPES(s) -> InputTypeDict:
@@ -230,30 +106,26 @@ class CLIPTextEncode(ComfyNodeABC):
 
         textEN = self.translator.translate_if_needed(text)
 
-        model = SentenceTransformer('all-mpnet-base-v2')
-        kw_model = KeyBERT(model)
-
-        keywords = kw_model.extract_keywords(textEN, top_n=10)
-        print("프롬프트 키워드 (튜플):", keywords)
-
-        keyword_texts = [kw[0] if isinstance(kw, (tuple, list)) else kw for kw in keywords]
-        print("프롬프트 키워드 (문자열만):", keyword_texts)
-
-        # 리스트를 하나의 문자열로 합쳐서 tokenize에 넘김
-        text_to_tokenize = ", ".join(keyword_texts)
-        tokens = clip.tokenize(text_to_tokenize)
-
-        return (clip.encode_from_tokens_scheduled(tokens), )
-    '''
-'''
         kw_model = KeyBERT(model='paraphrase-MiniLM-L6-v2')
 
         #kw_model = KeyBERT()
-        keywords = kw_model.extract_keywords(textEN, keyphrase_ngram_range=(1, 2), stop_words='english')
-        print("번역: ",textEN)
+        keywords = kw_model.extract_keywords(
+            textEN,
+            keyphrase_ngram_range=(1, 4),
+            stop_words='english',
+            use_mmr=True,       #  중복 키워드 감소를 위한 MMR 사용
+            diversity=0.7,      #  다양성 확보를 위한 값 (0~1)
+            top_n=5             #  추출할 키워드 개수 제한
+        )
+
+        print("번역: ", textEN)
         # Step 3: 프롬프트 출력
         keyword_prompt = ", ".join([kw[0] for kw in keywords])
-        '''
+        print("프롬프트 키워드: ", keyword_prompt)
+        tokens = clip.tokenize(keyword_prompt)
+
+        return (clip.encode_from_tokens_scheduled(tokens), )
+
 
 """
     아래는 원본 코드

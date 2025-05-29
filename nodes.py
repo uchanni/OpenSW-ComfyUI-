@@ -1,7 +1,12 @@
 from __future__ import annotations
 #from transformers import pipeline # 키워드 추출 패키지
 from keybert import KeyBERT
+#from sentence_transformers import SentenceTransformer
+from sentence_transformers import SentenceTransformer, util as st_util
+#from sentence_transformers.util import cos_sim
 import torch
+import spacy
+from spacy.matcher import Matcher
 
 import os
 import sys  
@@ -79,60 +84,218 @@ class DeepLTranslator:
         return text
 MAX_RESOLUTION=16384
 
-# 텍스트 인코더 / 체크포인트
 class CLIPTextEncode(ComfyNodeABC):
     @classmethod
-    def INPUT_TYPES(s) -> InputTypeDict:
+    def INPUT_TYPES(s):
         return {
             "required": {
-                "text": (IO.STRING, {"multiline": True, "dynamicPrompts": True, "tooltip": "The text to be encoded."}),
-                "clip": (IO.CLIP, {"tooltip": "The CLIP model used for encoding the text."})
+                "text": (IO.STRING, {"multiline": True, "dynamicPrompts": True}),
+                "clip": (IO.CLIP, {}),
             }
         }
+
     RETURN_TYPES = (IO.CONDITIONING,)
-    OUTPUT_TOOLTIPS = ("A conditioning containing the embedded text used to guide the diffusion model.",)
     FUNCTION = "encode"
-
     CATEGORY = "conditioning"
-    DESCRIPTION = "Encodes a text prompt using a CLIP model into an embedding that can be used to guide the diffusion model towards generating specific images."
 
-    def __init__(self):
-        self.translator = DeepLTranslator("e7a84eba-0af1-4b37-aa36-f58c7c556ae9:fx")  # deepl 번역기 api key
+    def __init__(self, relation_json_path="relation_phrases.json"):
+        self.translator = DeepLTranslator("e7a84eba-0af1-4b37-aa36-f58c7c556ae9:fx")
+        self.st_model = SentenceTransformer('all-mpnet-base-v2')
+        self.kw_model = KeyBERT(self.st_model)
+        self.spacy_nlp = spacy.load("en_core_web_sm")
+
+        self.matcher = Matcher(self.spacy_nlp.vocab)
+        self.matcher.add("NOUN_PHRASES", [
+            [{"POS": "ADJ", "OP": "*"}, {"POS": "NOUN", "OP": "+"}],
+            [{"POS": "NOUN"}, {"POS": "NOUN"}]
+        ])
+        self.matcher.add("VERB_PHRASES", [
+            [{"POS": "VERB"}, {"POS": "PART", "OP": "*"}, {"POS": "ADP", "OP": "*"}, {"POS": "ADV", "OP": "*"}]
+        ])
+        self.matcher.add("PREP_PHRASES", [
+            [{"POS": "ADP"}, {"POS": "DET", "OP": "*"}, {"POS": "ADJ", "OP": "*"}, {"POS": "NOUN", "OP": "+"}]
+        ])
+
+        if os.path.exists(relation_json_path):
+            with open(relation_json_path, "r", encoding="utf-8") as f:
+                self.relation_phrases = [p.lower() for p in json.load(f)]
+        else:
+            self.relation_phrases = []
+
+    def extract_meaningful_phrases(self, text):
+        doc = self.spacy_nlp(text)
+        phrases = set()
+
+        # 기본 matcher 구문 추출
+        matches = self.matcher(doc)
+        for _, start, end in matches:
+            span = doc[start:end]
+            phrases.add(span.text.strip())
+
+        # 명사구 추가
+        for chunk in doc.noun_chunks:
+            phrases.add(chunk.text.strip())
+
+        # 동사+전치사+목적어 구조 자동 추출해 구 결합
+        for token in doc:
+            if token.pos_ == "VERB":
+                # 동명사구 (ing형태 동사 포함) 결합 (예: running through the desert)
+                phrase_parts = [token.text]
+                # 보통 전치사/부사 등 따라오는 경우
+                for child in token.children:
+                    if child.dep_ in {"prep", "advmod", "prt"}:
+                        subtree_text = " ".join([t.text for t in child.subtree])
+                        phrase_parts.append(subtree_text)
+                combined_phrase = " ".join(phrase_parts)
+                if len(phrase_parts) > 1:
+                    phrases.add(combined_phrase)
+
+                # 동사 + 목적어 결합 (예: speed on motorcycle)
+                dobj = [child for child in token.children if child.dep_ == "dobj"]
+                if dobj:
+                    dobj_phrase = token.text + " " + " ".join([t.text for t in dobj[0].subtree])
+                    phrases.add(dobj_phrase)
+
+        # 관계 구(json) 내포된 단어와 문장 내 구문 결합
+        relation_hits = self.find_relation_phrases_in_text(text.lower())
+        tokens_lower = [t.text.lower() for t in doc]
+        for phrase in list(phrases):
+            phrase_tokens = phrase.lower().split()
+            for rel in relation_hits:
+                rel_tokens = rel.split()
+                for i in range(len(tokens_lower) - len(phrase_tokens) + 1):
+                    if tokens_lower[i:i+len(phrase_tokens)] == phrase_tokens:
+                        start_idx = i + len(phrase_tokens)
+                        if tokens_lower[start_idx:start_idx+len(rel_tokens)] == rel_tokens:
+                            combined = f"{phrase} {rel}"
+                            phrases.add(combined)
+
+        # 길이순 정렬 후 중복 제거
+        phrases = sorted(phrases, key=lambda x: -len(x))
+        filtered = []
+        for p in phrases:
+            if not any(p != q and p in q for q in filtered):
+                filtered.append(p)
+
+        return filtered
+
+    def find_relation_phrases_in_text(self, text):
+        found = set()
+        tokens = text.split()
+        for phrase in self.relation_phrases:
+            p_tokens = phrase.split()
+            for i in range(len(tokens) - len(p_tokens) + 1):
+                if tokens[i:i+len(p_tokens)] == p_tokens:
+                    found.add(phrase)
+        return list(found)
+
+    def remove_semantic_duplicates(self, keywords, threshold=0.9):
+        from sentence_transformers import util as st_util
+
+        phrases = [kw[0] if isinstance(kw, tuple) else kw for kw in keywords]
+        embeddings = self.st_model.encode(phrases, convert_to_tensor=True)
+        keep = [True] * len(phrases)
+
+        for i in range(len(phrases)):
+            if not keep[i]:
+                continue
+            for j in range(i + 1, len(phrases)):
+                if not keep[j]:
+                    continue
+                sim = st_util.cos_sim(embeddings[i], embeddings[j]).item()
+                if sim > threshold:
+                    if len(phrases[i]) >= len(phrases[j]):
+                        keep[j] = False
+                    else:
+                        keep[i] = False
+
+        return [phrases[i] for i in range(len(phrases)) if keep[i]]
+
+    def combine_related_phrases(self, phrases):
+        """
+        추가 조합 자동화: 명사구/전치사구 등 자연스러운 연결 확인
+        예를 들어,
+        - 'a man', 'with a gun' -> 'a man with a gun'
+        - 'running', 'through the desert' -> 'running through the desert'
+        """
+        combined = set()
+        lower_phrases = [p.lower() for p in phrases]
+
+        for p in phrases:
+            combined.add(p)  # 기본 포함
+
+        for p1 in phrases:
+            for p2 in phrases:
+                if p1 == p2:
+                    continue
+                # 자연어 구문 연결 규칙 (매우 간단한 패턴, 필요 시 확장 가능)
+                if (p1.lower().startswith(("a ", "the ")) and p2.lower().startswith(("with ", "on ", "in ", "through "))) \
+                        or (p1.lower().endswith("ing") and p2.lower().startswith(("through ", "on ", "in "))):
+                    merged = p1 + " " + p2
+                    combined.add(merged)
+
+        # 중복 포함 구 제거
+        combined = sorted(combined, key=lambda x: -len(x))
+        filtered = []
+        for c in combined:
+            if not any(c != f and c in f for f in filtered):
+                filtered.append(c)
+
+        return filtered
 
     def encode(self, clip, text):
         if clip is None:
             raise RuntimeError("ERROR: clip input is invalid: None")
 
         textEN = self.translator.translate_if_needed(text)
+        print("[DEBUG] 번역 후 텍스트:", textEN)
 
-        kw_model = KeyBERT(model='paraphrase-MiniLM-L6-v2')
+        candidate_phrases = self.extract_meaningful_phrases(textEN)
+        print("[DEBUG] 의미 있는 구:", candidate_phrases)
 
-        #kw_model = KeyBERT()
-        keywords = kw_model.extract_keywords(textEN, keyphrase_ngram_range=(1, 4), stop_words='english')
-        print("번역: ",textEN)
-        # Step 3: 프롬프트 출력
-        keyword_prompt = ", ".join([kw[0] for kw in keywords])
-        print("프롬프트 키워드: ", keyword_prompt)
-        tokens = clip.tokenize(keyword_prompt)
+        keywords_with_scores = self.kw_model.extract_keywords(
+            textEN,
+            keyphrase_ngram_range=(1, 4),
+            stop_words=None,
+            top_n=15,
+            candidates=candidate_phrases
+        )
+        print("[DEBUG] KeyBERT 출력:", keywords_with_scores)
 
+        unique_keywords = self.remove_semantic_duplicates(keywords_with_scores)
+        print("[DEBUG] 유사 키워드 제거 후:", unique_keywords)
+
+        relation_hits = self.find_relation_phrases_in_text(textEN)
+        print("[DEBUG] 관계 표현 추출:", relation_hits)
+
+        # 동명사(ing) 구 후보
+        gerund_candidates = [p for p in candidate_phrases if p.split()[0].endswith("ing")]
+        print("[DEBUG] 강제 포함 동명사 후보:", gerund_candidates)
+
+        # 명사구 중 인물 관련 구 후보 강제 포함
+        noun_phrases = [p for p in candidate_phrases if p.lower().startswith(("a ", "the ")) and any(w in p.lower() for w in ["man", "woman", "person", "girl", "boy"])]
+        print("[DEBUG] 강제 포함 명사구 후보:", noun_phrases)
+
+        combined_phrases = self.combine_related_phrases(candidate_phrases)
+        print("[DEBUG] 결합된 긴 구:", combined_phrases)
+
+        all_keywords = list(set(unique_keywords + relation_hits + gerund_candidates + noun_phrases + combined_phrases))
+        print("[DEBUG] 최종 키워드 후보:", all_keywords)
+
+        # 긴 구 우선 중복 제거
+        final_keywords = []
+        for kw in sorted(all_keywords, key=lambda x: -len(x)):
+            if not any(kw != other and kw in other for other in final_keywords):
+                final_keywords.append(kw)
+
+        # 강조 가중치 예시
+        weighted_keywords = [f"({kw}:1.3)" if "each other" in kw else kw for kw in final_keywords]
+        joined_keywords = ", ".join(weighted_keywords)
+
+        print("최종 키워드:", joined_keywords)
+
+        tokens = clip.tokenize(joined_keywords)
         return (clip.encode_from_tokens_scheduled(tokens), )
-
-"""
-    아래는 원본 코드
-    def encode(self, clip, text):
-
-        if clip is None:
-            raise RuntimeError("ERROR: clip input is invalid: None")
-        
-        textEN = self.translator.translate_if_needed(text)
-        nlp = pipeline("text2text-generation", model="ml6team/keyphrase-extraction-distilbert-inspec") # 텍스트 키워드 추출기
-        textENKeyword = nlp(textEN)[0]['generated_text']
-
-        print(textENKeyword) # 키워드 추출기 체크
-
-        tokens = clip.tokenize(textENKeyword)
-        return (clip.encode_from_tokens_scheduled(tokens), )
-"""
 
 class ConditioningCombine:
     @classmethod

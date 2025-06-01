@@ -74,43 +74,92 @@ export default function App() {
 
       {show && (
         <div className="adv">
-          <input
-            value={neg}
-            onChange={e => setNeg(e.target.value)}
-            placeholder="(옵션) 제외할 요소 입력"
-          />
-          <input
-            type="number"
-            value={seed}
-            onChange={e => setSeed(e.target.value)}
-            placeholder="Seed 값 (기본: 42)"
-          />
-          <input
-            type="number"
-            value={width}
-            onChange={e => setWidth(e.target.value)}
-            placeholder="가로 해상도 (예: 512)"
-          />
-          <input
-            type="number"
-            value={height}
-            onChange={e => setHeight(e.target.value)}
-            placeholder="세로 해상도 (예: 512)"
-          />
-          <input
-            type="number"
-            value={steps}
-            onChange={e => setSteps(e.target.value)}
-            placeholder="Sampling Steps (예: 20)"
-          />
-          <input
-            type="number"
-            step="0.1"
-            value={cfg}
-            onChange={e => setCfg(e.target.value)}
-            placeholder="CFG Scale (예: 7.0)"
-          />
+          <div className="input-group">
+            <label>
+              Negative Prompt
+              <span style={{ fontSize: "12px", color: "#aaa" }}>
+                (생성에서 제외하고 싶은 요소)
+              </span>
+            </label>
+            <input
+              value={neg}
+              onChange={e => setNeg(e.target.value)}
+              placeholder="예: 흐림, 저화질"
+            />
+          </div>
+
+          <div className="input-group">
+            <label>
+              Seed
+              <span style={{ fontSize: "12px", color: "#aaa" }}>
+                (예: 42, 12345 — 같을수록 같은 이미지)
+              </span>
+            </label>
+            <input
+              type="number"
+              value={seed}
+              onChange={e => setSeed(e.target.value)}
+            />
+          </div>
+
+          <div className="input-group">
+            <label>
+              Width
+              <span style={{ fontSize: "12px", color: "#aaa" }}>
+                (이미지 가로 해상도, 기본: 512)
+              </span>
+            </label>
+            <input
+              type="number"
+              value={width}
+              onChange={e => setWidth(e.target.value)}
+            />
+          </div>
+
+          <div className="input-group">
+            <label>
+              Height
+              <span style={{ fontSize: "12px", color: "#aaa" }}>
+                (이미지 세로 해상도, 기본: 512)
+              </span>
+            </label>
+            <input
+              type="number"
+              value={height}
+              onChange={e => setHeight(e.target.value)}
+            />
+          </div>
+
+          <div className="input-group">
+            <label>
+              Steps
+              <span style={{ fontSize: "12px", color: "#aaa" }}>
+                (디퓨전 반복 횟수, 높을수록 정밀 — 예: 20)
+              </span>
+            </label>
+            <input
+              type="number"
+              value={steps}
+              onChange={e => setSteps(e.target.value)}
+            />
+          </div>
+
+          <div className="input-group">
+            <label>
+              CFG Scale
+              <span style={{ fontSize: "12px", color: "#aaa" }}>
+                (프롬프트 반영 강도, 일반적으로 5~15)
+              </span>
+            </label>
+            <input
+              type="number"
+              step="0.1"
+              value={cfg}
+              onChange={e => setCfg(e.target.value)}
+            />
+          </div>
         </div>
+
 
       )}
 

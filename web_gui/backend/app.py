@@ -2,16 +2,16 @@
 backend/app.py
 ────────────────────────────────────────────────────────
 Flask 서버: React → /generate POST 요청을 받아
-  ① CheckpointLoaderSimple 노드
-  ② EmptyLatentImage
-  ③ CLIPTextEncode (positive)
-  ④ CLIPTextEncode (negative, 비어 있으면 빈 문자열로)
-  ⑤ KSampler
-  ⑥ VAEDecode
-  ⑦ SaveImage
+  -CheckpointLoaderSimple 노드
+  -EmptyLatentImage
+  -CLIPTextEncode (positive)
+  -CLIPTextEncode (negative, 비어 있으면 빈 문자열로)
+  -KSampler
+  -VAEDecode
+  -SaveImage
 로 이루어진 워크플로우 JSON을 만들고
 ComfyUI(127.0.0.1:8188) 에 실행을 요청한 뒤
-base64 이미지를 React 쪽으로 그대로 반환한다.
+base64 이미지를 React 쪽으로 그대로 반환.
 """
 
 # app.py ── ComfyUI 메가노드 GUI 백엔드 (Flask + 요청 결과 polling 포함)
@@ -21,7 +21,7 @@ from flask_cors import CORS
 import requests
 import time
 
-# ComfyUI에 존재하는 리소스 이름 정확히 입력
+# ComfyUI 리소스
 CHECKPOINT_FILE = "v1-5-pruned-emaonly-fp16.safetensors"
 SAMPLER_NAME    = "euler"
 SCHEDULER_NAME  = "normal"
@@ -99,9 +99,9 @@ def generate():
 
     workflow = { "prompt": prompt }
 
-    # 🔍 여기에 프롬프트 JSON 출력 추가
+    # 여기에 프롬프트 JSON 출력 추가
     import json
-    print("📦 보낼 프롬프트 JSON:")
+    print("보낼 프롬프트 JSON:")
     print(json.dumps(workflow, indent=2))
 
     # 1. ComfyUI에게 prompt 요청
@@ -123,7 +123,7 @@ def generate():
             h.raise_for_status()
             data = h.json()
 
-            print(f"\n📜 [HISTORY 응답 {i+1}/120]")
+            print(f"\n[HISTORY 응답 {i+1}/120]")
             print(json.dumps(data, indent=2))  # ← 전체 응답 구조 확인
 
             if prompt_id in data:
@@ -131,7 +131,7 @@ def generate():
                 images = node_outputs.get("images")
 
                 if images:
-                    print(f"✅ 이미지 생성 완료 (시도 {i+1}회차)")
+                    print(f"이미지 생성 완료 (시도 {i+1}회차)")
                     return jsonify({ "images": images })
 
             print(f"[{i+1}/120] 아직 이미지 없음…")

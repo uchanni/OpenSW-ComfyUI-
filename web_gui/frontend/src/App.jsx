@@ -81,7 +81,16 @@ export default function App() {
       </button>
 
       {img && (
-        <img src={img} alt="결과 이미지" style={{ marginTop: "20px", maxWidth: "100%" }} />
+        <div style={{ marginTop: "20px" }}>
+          <img
+            src={img}
+            alt="결과 이미지"
+            style={{ maxWidth: "100%", display: "block", marginBottom: "10px" }}
+          />
+          <a href={img} download="comfyui_image.png">
+            <button>이미지 다운로드</button>
+          </a>
+        </div>
       )}
     </div>
   );

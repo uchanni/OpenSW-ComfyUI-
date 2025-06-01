@@ -1,9 +1,9 @@
-import { useState, useEffect } from "react"; // ✅ useEffect 추가
+import { useState, useEffect } from "react"; //useEffect 추가
 import axios from "axios";
 import "./App.css";
 
 export default function App() {
-  const [progress, setProgress] = useState(0); // ✅ 진행률 상태 추가
+  const [progress, setProgress] = useState(0); // 진행률 상태 추가
   const [prompt, setPrompt] = useState("");
   const [neg, setNeg] = useState("");
   const [seed, setSeed] = useState(42);
@@ -15,7 +15,7 @@ export default function App() {
   const [steps, setSteps] = useState(20);
   const [cfg, setCfg] = useState(7.0);
 
-  // ✅ 진행률 useEffect 추가
+  // 진행률 useEffect 추가
   useEffect(() => {
     let timer;
 
@@ -182,7 +182,7 @@ export default function App() {
         {loading ? "이미지 생성 중…" : "이미지 생성"}
       </button>
 
-      {/* ✅ 진행 바 UI 추가 */}
+      {/* 진행 바 UI 추가 */}
       {loading && (
         <div
           style={{

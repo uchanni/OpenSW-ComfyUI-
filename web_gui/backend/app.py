@@ -61,7 +61,7 @@ def generate():
         "inputs": { "text": pos, "clip": ["0", 1] }
     }
 
-    # 3) Negative prompt (항상 만들어야 오류 없음)
+    # 3) Negative prompt
     prompt["3"] = {
         "class_type": "CLIPTextEncode",
         "inputs": { "text": neg, "clip": ["0", 1] }
@@ -92,12 +92,17 @@ def generate():
     }
 
     # 6) SaveImage
-    prompt["6"] = {
+    prompt["9"] = {
         "class_type": "SaveImage",
         "inputs": { "images": ["5", 0], "filename_prefix": "ComfyUI" }
     }
 
     workflow = { "prompt": prompt }
+
+    # 🔍 여기에 프롬프트 JSON 출력 추가
+    import json
+    print("📦 보낼 프롬프트 JSON:")
+    print(json.dumps(workflow, indent=2))
 
     # 1. ComfyUI에게 prompt 요청
     try:
@@ -111,22 +116,34 @@ def generate():
     if not prompt_id:
         return jsonify({"error": "prompt_id 없음"}), 500
 
-    # 2. /history/{id} 반복 조회해서 결과 받기
-    for i in range(60):  # 최대 60초 기다림
+    # 2. /history/{prompt_id} 반복 조회
+    for i in range(120):
         try:
             h = requests.get(f"http://127.0.0.1:8188/history/{prompt_id}")
             h.raise_for_status()
             data = h.json()
-            images = data.get("outputs", {}).get("6", {}).get("images")
 
-            if images:
-                return jsonify({ "images": images })
+            print(f"\n📜 [HISTORY 응답 {i+1}/120]")
+            print(json.dumps(data, indent=2))  # ← 전체 응답 구조 확인
+
+            if prompt_id in data:
+                node_outputs = data[prompt_id].get("outputs", {}).get("9", {})
+                images = node_outputs.get("images")
+
+                if images:
+                    print(f"✅ 이미지 생성 완료 (시도 {i+1}회차)")
+                    return jsonify({ "images": images })
+
+            print(f"[{i+1}/120] 아직 이미지 없음…")
+
         except Exception as e:
-            print(f"[{i+1}/60] 결과 대기 중 에러: {e}")
+            print(f"[{i+1}/120] 예외 발생:", e)
 
         time.sleep(1)
 
+
     return jsonify({"error": "이미지 생성 시간 초과"}), 504
+
 
 # Run
 if __name__ == "__main__":

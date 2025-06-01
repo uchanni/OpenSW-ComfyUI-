@@ -29,16 +29,15 @@ export default function App() {
 
       console.log("응답 수신:", res.data);
 
-      // ComfyUI 응답: images or output.images
-      const imgObj = res.data?.images?.[0] ?? res.data?.output?.images?.[0];
-
-      if (!imgObj?.image) {
+      const imgObj = res.data?.images?.[0];
+      if (!imgObj?.filename) {
         alert("이미지를 찾을 수 없습니다.");
-        console.warn("응답에 image 없음:", res.data);
+        console.warn("응답에 filename 없음:", res.data);
         return;
       }
 
-      setImg("data:image/png;base64," + imgObj.image);
+      const url = `http://127.0.0.1:8188/view?filename=${imgObj.filename}&subfolder=${imgObj.subfolder}&type=${imgObj.type}`;
+      setImg(url);
     } catch (err) {
       console.error("에러 발생:", err);
       alert("이미지 생성 실패: " + err.message);

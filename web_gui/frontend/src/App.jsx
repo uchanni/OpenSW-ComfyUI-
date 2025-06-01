@@ -9,6 +9,11 @@ export default function App() {
   const [show, setShow] = useState(false);
   const [img, setImg] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [width, setWidth] = useState(512);
+  const [height, setHeight] = useState(512);
+  const [steps, setSteps] = useState(20);
+  const [cfg, setCfg] = useState(7.0);
+
 
   const run = async () => {
     if (!prompt.trim()) {
@@ -24,8 +29,15 @@ export default function App() {
       const res = await axios.post("http://127.0.0.1:5000/generate", {
         prompt,
         ...(neg.trim() && { neg }),
-        ...(show && { seed: Number(seed) })
+        ...(show && {
+          seed: Number(seed),
+          width: Number(width),
+          height: Number(height),
+          steps: Number(steps),
+          cfg: Number(cfg),
+        })
       });
+
 
       console.log("응답 수신:", res.data);
 
@@ -73,7 +85,33 @@ export default function App() {
             onChange={e => setSeed(e.target.value)}
             placeholder="Seed 값 (기본: 42)"
           />
+          <input
+            type="number"
+            value={width}
+            onChange={e => setWidth(e.target.value)}
+            placeholder="가로 해상도 (예: 512)"
+          />
+          <input
+            type="number"
+            value={height}
+            onChange={e => setHeight(e.target.value)}
+            placeholder="세로 해상도 (예: 512)"
+          />
+          <input
+            type="number"
+            value={steps}
+            onChange={e => setSteps(e.target.value)}
+            placeholder="Sampling Steps (예: 20)"
+          />
+          <input
+            type="number"
+            step="0.1"
+            value={cfg}
+            onChange={e => setCfg(e.target.value)}
+            placeholder="CFG Scale (예: 7.0)"
+          />
         </div>
+
       )}
 
       <button onClick={run} disabled={loading}>

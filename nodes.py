@@ -1,9 +1,6 @@
 from __future__ import annotations
-#from transformers import pipeline # 키워드 추출 패키지
 from keybert import KeyBERT
-#from sentence_transformers import SentenceTransformer
 from sentence_transformers import SentenceTransformer, util as st_util
-#from sentence_transformers.util import cos_sim
 import torch
 import spacy
 from spacy.matcher import Matcher
@@ -139,9 +136,7 @@ class CLIPTextEncode(ComfyNodeABC):
         # 동사+전치사+목적어 구조 자동 추출해 구 결합
         for token in doc:
             if token.pos_ == "VERB":
-                # 동명사구 (ing형태 동사 포함) 결합 (예: running through the desert)
                 phrase_parts = [token.text]
-                # 보통 전치사/부사 등 따라오는 경우
                 for child in token.children:
                     if child.dep_ in {"prep", "advmod", "prt"}:
                         subtree_text = " ".join([t.text for t in child.subtree])
@@ -150,7 +145,6 @@ class CLIPTextEncode(ComfyNodeABC):
                 if len(phrase_parts) > 1:
                     phrases.add(combined_phrase)
 
-                # 동사 + 목적어 결합 (예: speed on motorcycle)
                 dobj = [child for child in token.children if child.dep_ == "dobj"]
                 if dobj:
                     dobj_phrase = token.text + " " + " ".join([t.text for t in dobj[0].subtree])
@@ -212,12 +206,6 @@ class CLIPTextEncode(ComfyNodeABC):
         return [phrases[i] for i in range(len(phrases)) if keep[i]]
 
     def combine_related_phrases(self, phrases):
-        """
-        추가 조합 자동화: 명사구/전치사구 등 자연스러운 연결 확인
-        예를 들어,
-        - 'a man', 'with a gun' -> 'a man with a gun'
-        - 'running', 'through the desert' -> 'running through the desert'
-        """
         combined = set()
         lower_phrases = [p.lower() for p in phrases]
 
@@ -228,7 +216,7 @@ class CLIPTextEncode(ComfyNodeABC):
             for p2 in phrases:
                 if p1 == p2:
                     continue
-                # 자연어 구문 연결 규칙 (매우 간단한 패턴, 필요 시 확장 가능)
+                # 자연어 구문 연결 규칙
                 if (p1.lower().startswith(("a ", "the ")) and p2.lower().startswith(("with ", "on ", "in ", "through "))) \
                         or (p1.lower().endswith("ing") and p2.lower().startswith(("through ", "on ", "in "))):
                     merged = p1 + " " + p2
@@ -260,35 +248,23 @@ class CLIPTextEncode(ComfyNodeABC):
             top_n=15,
             candidates=candidate_phrases
         )
-        print("[DEBUG] KeyBERT 출력:", keywords_with_scores)
-
         unique_keywords = self.remove_semantic_duplicates(keywords_with_scores)
-        print("[DEBUG] 유사 키워드 제거 후:", unique_keywords)
-
         relation_hits = self.find_relation_phrases_in_text(textEN)
-        print("[DEBUG] 관계 표현 추출:", relation_hits)
-
         # 동명사(ing) 구 후보
         gerund_candidates = [p for p in candidate_phrases if p.split()[0].endswith("ing")]
-        print("[DEBUG] 강제 포함 동명사 후보:", gerund_candidates)
-
         # 명사구 중 인물 관련 구 후보 강제 포함
         noun_phrases = [p for p in candidate_phrases if p.lower().startswith(("a ", "the ")) and any(w in p.lower() for w in ["man", "woman", "person", "girl", "boy"])]
-        print("[DEBUG] 강제 포함 명사구 후보:", noun_phrases)
 
         combined_phrases = self.combine_related_phrases(candidate_phrases)
-        print("[DEBUG] 결합된 긴 구:", combined_phrases)
 
         all_keywords = list(set(unique_keywords + relation_hits + gerund_candidates + noun_phrases + combined_phrases))
-        print("[DEBUG] 최종 키워드 후보:", all_keywords)
-
         # 긴 구 우선 중복 제거
         final_keywords = []
         for kw in sorted(all_keywords, key=lambda x: -len(x)):
             if not any(kw != other and kw in other for other in final_keywords):
                 final_keywords.append(kw)
 
-        # 강조 가중치 예시
+        # 강조 가중치
         weighted_keywords = [f"({kw}:1.3)" if "each other" in kw else kw for kw in final_keywords]
         joined_keywords = ", ".join(weighted_keywords)
 

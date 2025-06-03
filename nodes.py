@@ -4,7 +4,7 @@ from sentence_transformers import SentenceTransformer, util as st_util
 import torch
 import spacy
 from spacy.matcher import Matcher
-
+import re
 import os
 import sys  
 import json
@@ -272,7 +272,7 @@ class CLIPTextEncode(ComfyNodeABC):
 
         tokens = clip.tokenize(joined_keywords)
         return (clip.encode_from_tokens_scheduled(tokens), )
-
+    
 class ConditioningCombine:
     @classmethod
     def INPUT_TYPES(s):

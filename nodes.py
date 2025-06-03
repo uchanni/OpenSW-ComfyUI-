@@ -1,8 +1,12 @@
 from __future__ import annotations
+from keybert import KeyBERT
+from sentence_transformers import SentenceTransformer, util as st_util
 import torch
-
+import spacy
+from spacy.matcher import Matcher
+import re
 import os
-import sys
+import sys  
 import json
 import hashlib
 import traceback
@@ -44,31 +48,231 @@ def before_node_execution():
 def interrupt_processing(value=True):
     comfy.model_management.interrupt_current_processing(value)
 
+import requests
+from langdetect import detect
+# 번역기 api
+class DeepLTranslator:
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+        self.url = "https://api-free.deepl.com/v2/translate"
+
+    def translate(self, text: str, source_lang="KO", target_lang="EN") -> str:
+        if not text.strip():
+            return text
+        data = {
+            "auth_key": self.api_key,
+            "text": text,
+            "source_lang": source_lang,
+            "target_lang": target_lang
+        }
+        response = requests.post(self.url, data=data)
+        if response.status_code == 200:
+            return response.json()['translations'][0]['text']
+        else:
+            print("Translation failed:", response.text)
+            return text  # fallback to original
+
+    def translate_if_needed(self, text: str) -> str:
+        try:
+            if detect(text) == "ko":
+                return self.translate(text)
+        except Exception as e:
+            print("Language detection failed:", e)
+        return text
 MAX_RESOLUTION=16384
 # 텍스트 인코더 / 체크포인트
 class CLIPTextEncode(ComfyNodeABC):
     @classmethod
-    def INPUT_TYPES(s) -> InputTypeDict:
+    def INPUT_TYPES(s):
         return {
             "required": {
-                "text": (IO.STRING, {"multiline": True, "dynamicPrompts": True, "tooltip": "The text to be encoded."}),
-                "clip": (IO.CLIP, {"tooltip": "The CLIP model used for encoding the text."})
+                "text": (IO.STRING, {"multiline": True, "dynamicPrompts": True}),
+                "clip": (IO.CLIP, {}),
             }
         }
-    RETURN_TYPES = (IO.CONDITIONING,)
-    OUTPUT_TOOLTIPS = ("A conditioning containing the embedded text used to guide the diffusion model.",)
-    FUNCTION = "encode"
 
+    RETURN_TYPES = (IO.CONDITIONING,)
+    FUNCTION = "encode"
     CATEGORY = "conditioning"
-    DESCRIPTION = "Encodes a text prompt using a CLIP model into an embedding that can be used to guide the diffusion model towards generating specific images."
+
+    def __init__(self, relation_json_path="relation_phrases.json"):
+        self.translator = DeepLTranslator("e7a84eba-0af1-4b37-aa36-f58c7c556ae9:fx")
+        self.st_model = SentenceTransformer('all-mpnet-base-v2')
+        self.kw_model = KeyBERT(self.st_model)
+        self.spacy_nlp = spacy.load("en_core_web_sm")
+
+        self.matcher = Matcher(self.spacy_nlp.vocab)
+        self.matcher.add("NOUN_PHRASES", [
+            [{"POS": "ADJ", "OP": "*"}, {"POS": "NOUN", "OP": "+"}],
+            [{"POS": "NOUN"}, {"POS": "NOUN"}]
+        ])
+        self.matcher.add("VERB_PHRASES", [
+            [{"POS": "VERB"}, {"POS": "PART", "OP": "*"}, {"POS": "ADP", "OP": "*"}, {"POS": "ADV", "OP": "*"}]
+        ])
+        self.matcher.add("PREP_PHRASES", [
+            [{"POS": "ADP"}, {"POS": "DET", "OP": "*"}, {"POS": "ADJ", "OP": "*"}, {"POS": "NOUN", "OP": "+"}]
+        ])
+
+        if os.path.exists(relation_json_path):
+            with open(relation_json_path, "r", encoding="utf-8") as f:
+                self.relation_phrases = [p.lower() for p in json.load(f)]
+        else:
+            self.relation_phrases = []
+
+    def extract_meaningful_phrases(self, text):
+        doc = self.spacy_nlp(text)
+        phrases = set()
+
+        # 기본 matcher 구문 추출
+        matches = self.matcher(doc)
+        for _, start, end in matches:
+            span = doc[start:end]
+            phrases.add(span.text.strip())
+
+        # 명사구 추가
+        for chunk in doc.noun_chunks:
+            phrases.add(chunk.text.strip())
+
+        # 동사+전치사+목적어 구조 자동 추출해 구 결합
+        for token in doc:
+            if token.pos_ == "VERB":
+                phrase_parts = [token.text]
+                for child in token.children:
+                    if child.dep_ in {"prep", "advmod", "prt"}:
+                        subtree_text = " ".join([t.text for t in child.subtree])
+                        phrase_parts.append(subtree_text)
+                combined_phrase = " ".join(phrase_parts)
+                if len(phrase_parts) > 1:
+                    phrases.add(combined_phrase)
+
+                dobj = [child for child in token.children if child.dep_ == "dobj"]
+                if dobj:
+                    dobj_phrase = token.text + " " + " ".join([t.text for t in dobj[0].subtree])
+                    phrases.add(dobj_phrase)
+
+        # 관계 구(json) 내포된 단어와 문장 내 구문 결합
+        relation_hits = self.find_relation_phrases_in_text(text.lower())
+        tokens_lower = [t.text.lower() for t in doc]
+        for phrase in list(phrases):
+            phrase_tokens = phrase.lower().split()
+            for rel in relation_hits:
+                rel_tokens = rel.split()
+                for i in range(len(tokens_lower) - len(phrase_tokens) + 1):
+                    if tokens_lower[i:i+len(phrase_tokens)] == phrase_tokens:
+                        start_idx = i + len(phrase_tokens)
+                        if tokens_lower[start_idx:start_idx+len(rel_tokens)] == rel_tokens:
+                            combined = f"{phrase} {rel}"
+                            phrases.add(combined)
+
+        # 길이순 정렬 후 중복 제거
+        phrases = sorted(phrases, key=lambda x: -len(x))
+        filtered = []
+        for p in phrases:
+            if not any(p != q and p in q for q in filtered):
+                filtered.append(p)
+
+        return filtered
+
+    def find_relation_phrases_in_text(self, text):
+        found = set()
+        tokens = text.split()
+        for phrase in self.relation_phrases:
+            p_tokens = phrase.split()
+            for i in range(len(tokens) - len(p_tokens) + 1):
+                if tokens[i:i+len(p_tokens)] == p_tokens:
+                    found.add(phrase)
+        return list(found)
+
+    def remove_semantic_duplicates(self, keywords, threshold=0.9):
+        from sentence_transformers import util as st_util
+
+        phrases = [kw[0] if isinstance(kw, tuple) else kw for kw in keywords]
+        embeddings = self.st_model.encode(phrases, convert_to_tensor=True)
+        keep = [True] * len(phrases)
+
+        for i in range(len(phrases)):
+            if not keep[i]:
+                continue
+            for j in range(i + 1, len(phrases)):
+                if not keep[j]:
+                    continue
+                sim = st_util.cos_sim(embeddings[i], embeddings[j]).item()
+                if sim > threshold:
+                    if len(phrases[i]) >= len(phrases[j]):
+                        keep[j] = False
+                    else:
+                        keep[i] = False
+
+        return [phrases[i] for i in range(len(phrases)) if keep[i]]
+
+    def combine_related_phrases(self, phrases):
+        combined = set()
+        lower_phrases = [p.lower() for p in phrases]
+
+        for p in phrases:
+            combined.add(p)  # 기본 포함
+
+        for p1 in phrases:
+            for p2 in phrases:
+                if p1 == p2:
+                    continue
+                # 자연어 구문 연결 규칙
+                if (p1.lower().startswith(("a ", "the ")) and p2.lower().startswith(("with ", "on ", "in ", "through "))) \
+                        or (p1.lower().endswith("ing") and p2.lower().startswith(("through ", "on ", "in "))):
+                    merged = p1 + " " + p2
+                    combined.add(merged)
+
+        # 중복 포함 구 제거
+        combined = sorted(combined, key=lambda x: -len(x))
+        filtered = []
+        for c in combined:
+            if not any(c != f and c in f for f in filtered):
+                filtered.append(c)
+
+        return filtered
 
     def encode(self, clip, text):
         if clip is None:
-            raise RuntimeError("ERROR: clip input is invalid: None\n\nIf the clip is from a checkpoint loader node your checkpoint does not contain a valid clip or text encoder model.")
-        tokens = clip.tokenize(text)
+            raise RuntimeError("ERROR: clip input is invalid: None")
+
+        textEN = self.translator.translate_if_needed(text)
+        print("[DEBUG] 번역 후 텍스트:", textEN)
+
+        candidate_phrases = self.extract_meaningful_phrases(textEN)
+        print("[DEBUG] 의미 있는 구:", candidate_phrases)
+
+        keywords_with_scores = self.kw_model.extract_keywords(
+            textEN,
+            keyphrase_ngram_range=(1, 4),
+            stop_words=None,
+            top_n=15,
+            candidates=candidate_phrases
+        )
+        unique_keywords = self.remove_semantic_duplicates(keywords_with_scores)
+        relation_hits = self.find_relation_phrases_in_text(textEN)
+        # 동명사(ing) 구 후보
+        gerund_candidates = [p for p in candidate_phrases if p.split()[0].endswith("ing")]
+        # 명사구 중 인물 관련 구 후보 강제 포함
+        noun_phrases = [p for p in candidate_phrases if p.lower().startswith(("a ", "the ")) and any(w in p.lower() for w in ["man", "woman", "person", "girl", "boy"])]
+
+        combined_phrases = self.combine_related_phrases(candidate_phrases)
+
+        all_keywords = list(set(unique_keywords + relation_hits + gerund_candidates + noun_phrases + combined_phrases))
+        # 긴 구 우선 중복 제거
+        final_keywords = []
+        for kw in sorted(all_keywords, key=lambda x: -len(x)):
+            if not any(kw != other and kw in other for other in final_keywords):
+                final_keywords.append(kw)
+
+        # 강조 가중치
+        weighted_keywords = [f"({kw}:1.3)" if "each other" in kw else kw for kw in final_keywords]
+        joined_keywords = ", ".join(weighted_keywords)
+
+        print("최종 키워드:", joined_keywords)
+
+        tokens = clip.tokenize(joined_keywords)
         return (clip.encode_from_tokens_scheduled(tokens), )
-
-
+    
 class ConditioningCombine:
     @classmethod
     def INPUT_TYPES(s):
@@ -2258,11 +2462,7 @@ def init_builtin_extra_nodes():
         "nodes_optimalsteps.py",
         "nodes_hidream.py",
         "nodes_fresca.py",
-    ]
-
-    api_nodes_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "comfy_api_nodes")
-    api_nodes_files = [
-        "nodes_api.py",
+        "nodes_preview_any.py",
     ]
 
     import_failed = []
@@ -2270,6 +2470,26 @@ def init_builtin_extra_nodes():
         if not load_custom_node(os.path.join(extras_dir, node_file), module_parent="comfy_extras"):
             import_failed.append(node_file)
 
+    return import_failed
+
+
+def init_builtin_api_nodes():
+    api_nodes_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "comfy_api_nodes")
+    api_nodes_files = [
+        "nodes_ideogram.py",
+        "nodes_openai.py",
+        "nodes_minimax.py",
+        "nodes_veo2.py",
+        "nodes_kling.py",
+        "nodes_bfl.py",
+        "nodes_luma.py",
+        "nodes_recraft.py",
+        "nodes_pixverse.py",
+        "nodes_stability.py",
+        "nodes_pika.py",
+    ]
+
+    import_failed = []
     for node_file in api_nodes_files:
         if not load_custom_node(os.path.join(api_nodes_dir, node_file), module_parent="comfy_api_nodes"):
             import_failed.append(node_file)
@@ -2277,13 +2497,28 @@ def init_builtin_extra_nodes():
     return import_failed
 
 
-def init_extra_nodes(init_custom_nodes=True):
+def init_extra_nodes(init_custom_nodes=True, init_api_nodes=True):
     import_failed = init_builtin_extra_nodes()
+
+    import_failed_api = []
+    if init_api_nodes:
+        import_failed_api = init_builtin_api_nodes()
 
     if init_custom_nodes:
         init_external_custom_nodes()
     else:
         logging.info("Skipping loading of custom nodes")
+
+    if len(import_failed_api) > 0:
+        logging.warning("WARNING: some comfy_api_nodes/ nodes did not import correctly. This may be because they are missing some dependencies.\n")
+        for node in import_failed_api:
+            logging.warning("IMPORT FAILED: {}".format(node))
+        logging.warning("\nThis issue might be caused by new missing dependencies added the last time you updated ComfyUI.")
+        if args.windows_standalone_build:
+            logging.warning("Please run the update script: update/update_comfyui.bat")
+        else:
+            logging.warning("Please do a: pip install -r requirements.txt")
+        logging.warning("")
 
     if len(import_failed) > 0:
         logging.warning("WARNING: some comfy_extras/ nodes did not import correctly. This may be because they are missing some dependencies.\n")

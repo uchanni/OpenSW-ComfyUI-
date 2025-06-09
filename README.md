@@ -10,6 +10,62 @@
 
 ---
 
+
+<details>
+<summary>📚 자연어 문장 내부 처리 흐름</summary>
+
+본 프로젝트는 사용자가 입력한 한글 문장을 자동으로 번역하고, 파싱 및 후처리를 거쳐 CLIP 기반 텍스트 인코딩으로 연결한 후, 최종적으로 이미지를 생성하는 전체 파이프라인을 구성합니다. 각 단계는 다음과 같이 구성되어 있습니다:
+
+1️⃣ **언어 감지 및 번역**  
+- langdetect로 입력 언장의 언어를 판별  
+- 한글인 경우 DeepL API를 사용해 자연스러운 영어 문장으로 자동 번역
+
+2️⃣ **구문 파싱 및 키워드 추출**  
+- KeyBERT + SentenceTransformer로 의미 있는 구문 후보 추출  
+- cosine similarity 기반 중복 제거  
+- Spacy + Matcher를 활용해 명사구, 인물 정보, 동명사 등을 추가 삽입
+
+3️⃣ **구문 병합 및 강조 처리**  
+- 연관된 구문 병합  
+- `:1.3`, `:1.5` 형식으로 중요 구문 가중치 강조
+
+4️⃣ **CLIP 텍스트 인코딩**  
+- 키워드 시퀀스를 CLIPTextEncode 노드로 전달  
+- `tokenize()` 및 `encode_from_tokens_scheduled()` 수행 → CONDITIONING 생성
+
+5️⃣ **이미지 생성**  
+- CONDITIONING을 기반으로 KSampler → VAEDecode를 통해 이미지 생성  
+- 필요시 영역 설정/결합 등 조건 제어 가능
+
+</details>
+
+---
+
+<details>
+<summary>🖥️ GUI 내부 처리 흐름</summary>
+
+본 GUI는 React + Flask 기반으로 작동하며, 사용자의 입력을 받아 텍스트 처리부터 이미지 생성까지 자동화된 워크플로우를 구성합니다.
+
+1️⃣ **사용자 입력 (React UI)**  
+- 프롬프트 문장 + 이미지 설정값 입력  
+- `POST /generate`로 Flask에 요청
+
+2️⃣ **백엔드 처리 (Flask)**  
+- 입력 JSON을 ComfyUI의 `/prompt` API로 전달  
+- Flask는 중계자 역할만 수행 (자연어 처리 X)
+
+3️⃣ **이미지 생성 (ComfyUI 커스텀 노드)**  
+- DeepL 번역 → Hugging Face 파싱 → Spacy 후처리 → CLIP 인코딩  
+- KSampler + VAEDecode로 최종 이미지 생성
+
+4️⃣ **응답 반환 및 출력**  
+- 생성 이미지 경로 or base64를 React에 반환  
+- React UI에서 이미지 표시
+
+</details>
+
+---
+
 ## ⚙️ 기술적 장점
 - **DeepL, Hugging Face, Spacy, KeyBERT**를 결합한 파이프라인으로 정교한 프롬프트 파싱이 가능  
 - **번역, 키워드 추출, 구문 병합 등 전처리 자동화** → CLIPTextEncode에 최적화된 입력 생성  
@@ -36,6 +92,35 @@
 <!-- 또는 HTML iframe 사용 시
 <iframe width="560" height="315" src="https://www.youtube.com/embed/jIUUPcVcwEo?si=ldfF0CRASY1bH_cQ" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
 -->
+
+---
+
+## 💻 실행 방법
+
+아래 순서대로 백엔드 서버와 프론트엔드를 실행하면 웹 인터페이스를 통해 이미지를 생성할 수 있습니다.
+
+### 1️⃣ ComfyUI 실행
+```bash
+# ComfyUI 루트 디렉토리에서
+python main.py
+```
+
+### 2️⃣ Flask 백엔드 실행
+```bash
+# 백엔드 디렉토리에서 (예: backend/)
+python app.py
+```
+
+### 3️⃣ 프론트엔드(React) 실행
+```bash
+# 프론트엔드 디렉토리에서 (예: frontend/)
+npm install
+npm run start
+```
+
+### 🌐 접속 방법
+- 브라우저에서 `http://localhost:3000` 접속  
+- 프롬프트 입력 후 이미지 자동 생성
 
 ---
 

@@ -84,7 +84,9 @@
 ---
 
 ## 🧱 통합 GUI 아키텍처
-> 아키텍처 다이어그램 삽입 예정
+
+<img width="822" alt="스크린샷 2025-06-10 오전 12 23 48" src="https://github.com/user-attachments/assets/67055d50-f638-434b-b0e8-7d60c4d462e0" />
+
 
 ---
 

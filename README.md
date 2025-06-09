@@ -1,4 +1,3 @@
-<div align="center">
 
 # 🚀 OpenSW-ComfyUI 개선  
 *오픈소스SW기초 6분반 9조*

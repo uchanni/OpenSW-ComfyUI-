@@ -137,7 +137,7 @@ npm run start
 
 ##  팀원 및 역할
 
-### 🧑‍💼 정유찬 (팀장)  
+###  정유찬 (팀장)  
 - ComfyUI 프롬프트에 적합한 다양한 NLP 모델(Hugging Face 기반)의 파싱 성능 실험  
 - 비교 기준 수립, 실험 결과 문서화  
 - 통합 GUI 설계 및 구현  
@@ -146,7 +146,7 @@ npm run start
 
 ---
 
-### 👨‍💻 김민준 (팀원)  
+###  김민준 (팀원)  
 - Hugging Face 모델 및 DeepL API를 ComfyUI 노드에 연동하는 초기 구조 구현  
 - KeyBERT 및 Spacy 기반 후처리 로직 설계 및 구현  
 - 최종 키워드 품질 향상 기여  
@@ -157,5 +157,5 @@ npm run start
 
 ##  부록
 
-### 🔗 성능개선 테스트 시트 (OneDrive)  
+###  성능개선 테스트 시트 (OneDrive)  
 [👉 테스트 시트 바로가기](https://o365sen-my.sharepoint.com/:x:/g/personal/lamborghiner_o365sen_net/EYObqDJVUp9LtYEW4XkPoPABKSqXfGhByycejAsxFGGPVw?e=MYqfCQ)
